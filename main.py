@@ -18,11 +18,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TOKEN: Final = '7731949889:AAEimJ4UGAzXNVVgBjIqXV_duOA8IA42JVQ'
-BOT_USERNAME: Final = '@mainichi_bot'
+TOKEN: Final = 'Your_bot_token'
+BOT_USERNAME: Final = '@your_bot_name'
 
 # バススケジュールCSVファイルのパス
-BUS_SCHEDULE_CSV: Final = "/Users/yoshi28/Desktop/me/mainichi_boy/BUS_SCHEDULE_CSV.csv"
+BUS_SCHEDULE_CSV: Final = "~/BUS_SCHEDULE_CSV.csv"
 
 def normalize_text(text: str) -> str:
     return unicodedata.normalize('NFKC', text).lower()
