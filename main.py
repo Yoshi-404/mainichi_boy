@@ -10,6 +10,7 @@ import pandas as pd
 import asyncio
 from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont
+from train_for_telegram import get_transit_info
 
 # ログ設定
 logging.basicConfig(
@@ -18,11 +19,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TOKEN: Final = 'Your_bot_token'
-BOT_USERNAME: Final = '@your_bot_name'
+TOKEN: Final = '7731949889:AAEimJ4UGAzXNVVgBjIqXV_duOA8IA42JVQ'
+BOT_USERNAME: Final = '@mainichi_bot'
 
 # バススケジュールCSVファイルのパス
-BUS_SCHEDULE_CSV: Final = "~/BUS_SCHEDULE_CSV.csv"
+BUS_SCHEDULE_CSV: Final = "/Users/yoshi/Desktop/bot_seisaku/mainichi_boy_1.2/bus_schedule.csv"
 
 def normalize_text(text: str) -> str:
     return unicodedata.normalize('NFKC', text).lower()
@@ -336,11 +337,76 @@ async def unset_weather_reminder(update: Update, context: ContextTypes.DEFAULT_T
     
     await update.message.reply_text("リマインダーを解除しました。")
 
+from telegram.ext import ConversationHandler
 
+# ステート定義
+DEPARTURE, DESTINATION, TIME_OPTION, TIME_INPUT = range(4)
 
+# 会話スタート
+async def train_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text("出発駅を入力してください：")
+    return DEPARTURE
 
+async def input_departure(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data["departure"] = update.message.text
+    await update.message.reply_text("到着駅を入力してください：")
+    return DESTINATION
 
+async def input_destination(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data["destination"] = update.message.text
+    keyboard = [
+        [
+            InlineKeyboardButton("現在の日時で検索", callback_data="use_now"),
+            InlineKeyboardButton("別の日時を指定する", callback_data="custom_time")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("検索方法を選んでください：", reply_markup=reply_markup)
+    return TIME_OPTION
 
+async def input_time_option(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    
+    now = datetime.now()
+    
+    if query.data == "use_now":
+        context.user_data["use_today"] = True
+        result = get_transit_info(
+            departure_station=context.user_data["departure"],
+            destination_station=context.user_data["destination"],
+            use_today=True,
+            hour=str(now.hour),
+            minute=str(now.minute)
+        )
+        await query.message.reply_text(result)
+        return ConversationHandler.END
+    elif query.data == "custom_time":
+        context.user_data["use_today"] = False
+        await query.message.reply_text("時刻（HH:MM）を入力してください：")
+    else:
+        await query.message.reply_text("無効な選択肢です。もう一度お試しください。")
+        return TIME_OPTION
+
+async def input_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    time_parts = update.message.text.strip().split(":")
+    hour, minute = time_parts[0], time_parts[1]
+
+    result = get_transit_info(
+        departure_station=context.user_data["departure"],
+        destination_station=context.user_data["destination"],
+        use_today=False,
+        month=datetime.now().strftime("%m"),
+        day=datetime.now().strftime("%d"),
+        hour=hour,
+        minute=minute
+    )
+    await update.message.reply_text(result)
+    return ConversationHandler.END
+
+async def cancel_train(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text("キャンセルされました。")
+    return ConversationHandler.END
 
 
 if __name__ == '__main__':
@@ -360,6 +426,17 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(show_holidays, pattern="^show_holidays"))
     app.add_handler(CallbackQueryHandler(bus_going, pattern="^to_"))
     app.add_handler(CallbackQueryHandler(bus_schedule_command, pattern="^from_"))
-
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('train', train_command)],
+        states={
+            DEPARTURE: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_departure)],
+            DESTINATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_destination)],
+            TIME_OPTION: [CallbackQueryHandler(input_time_option)], 
+            TIME_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_time)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel_train)],
+    )
+    app.add_handler(conv_handler)
     print('Polling...')
     app.run_polling(poll_interval=2)
+
